@@ -1,5 +1,7 @@
 Require Import Coq.Sets.Ensembles.
 Require Import Coq.Logic.Classical_Prop.
+Require Import Coq.micromega.Lia.
+Require Coq.Lists.List.
 Require Import base_pc.
 Require Import semantic.
 Require Import syntax.
@@ -13,13 +15,45 @@ Export KLM_Soundness_M.
 Require Import KLM_Completeness.
 Export KLM_Completeness_M.
 
-Example simple_model : CumulModel.
-  apply (Build_CumulModel nat 
-                         (fun n => fun f => match f with Var 0 => true | _ => false end)
-                         (fun n m => n < m)).
-Defined.
+Fixpoint eval (a : nat -> bool) (f : Formula) : bool :=
+  match f with
+  | Var n => a n
+  | Not p => negb (eval a p)
+  | Contain p q => Contain_bool (eval a p) (eval a q)
+  end.
 
-Example simple_reflexivity : 
+Lemma eval_value : forall a, value (eval a).
+Proof. intro a. unfold value, keep_not, keep_contain. split; intros; reflexivity. Qed.
+
+Definition atoms (l : list nat) : World :=
+  eval (fun n => List.existsb (Nat.eqb n) l).
+
+Definition simple_label (n : nat) : Ensemble World := Singleton World (atoms (0 :: nil)).
+
+Lemma simple_label_valuations : forall n v, In World (simple_label n) v -> value v.
+Proof. intros n v H. destruct H. apply eval_value. Qed.
+
+Lemma simple_smooth : Smooth simple_label lt.
+Proof.
+  intros f s.
+  pattern s. apply (well_founded_induction Wf_nat.lt_wf). clear s.
+  intros s IH H.
+  destruct (classic (exists t, entails (simple_label t) f /\ t < s))
+    as [[t [Ht Hlt]] | Hno].
+  - right. destruct (IH t Hlt Ht) as [Hmin | [u [Hmin Hut]]].
+    + exists t. split; assumption.
+    + exists u. split; [exact Hmin | lia].
+  - left. split; assumption.
+Qed.
+
+Lemma simple_label_nonempty : forall n, exists v, In World (simple_label n) v.
+Proof. intro n. exists (atoms (0 :: nil)). constructor. Qed.
+
+Definition simple_model : CumulModel :=
+  Build_CumulModel nat simple_label lt simple_label_valuations
+                   simple_label_nonempty simple_smooth.
+
+Example simple_reflexivity :
   forall Γ, Γ ~ (Var 0) |~ (Var 0).
 Proof.
   intros.
@@ -32,10 +66,10 @@ Proof.
   solve_cumul.
 Qed.
 
-Example simple_CM : 
-  forall Γ p q r, 
-    Γ ~ p |~ q -> 
-    Γ ~ p |~ r -> 
+Example simple_CM :
+  forall Γ p q r,
+    Γ ~ p |~ q ->
+    Γ ~ p |~ r ->
     Γ ~ (p ∧ q) |~ r.
 Proof.
   intros Γ p q r H_pq H_pr.
@@ -44,8 +78,8 @@ Proof.
   - exact H_pr.
 Qed.
 
-Example CM_RW_example : 
-  forall Γ p q r s, 
+Example CM_RW_example :
+  forall Γ p q r s,
     In Formula Γ (r → s) ->
     Γ ~ p |~ q ->
     Γ ~ p |~ r ->
@@ -55,7 +89,7 @@ Proof.
   apply CM.
   - exact H_p_q.
   - apply RW with r.
-    + exact H_impl.
+    + apply L0. exact H_impl.
     + exact H_p_r.
 Qed.
 
@@ -110,7 +144,7 @@ Example k_with_gamma_example :
 Proof.
   intros 𝐊 Γ p q r H_pq H_qr.
   apply RW with q.
-  - exact H_qr.         (* q → r aus Γ *)
+  - apply L0. exact H_qr.         (* q → r aus Γ *)
   - apply Base.
     exact H_pq.         (* p |~ q aus 𝐊 *)
 Qed.
@@ -124,16 +158,16 @@ Example tweety_penguin :
 Proof.
   intros Γ H_bird_fly H_penguin_bird H_penguin_not_fly.
   apply RW with (Var 2).
-  - exact H_penguin_not_fly.
+  - apply L0. exact H_penguin_not_fly.
   - apply Ref.
 Qed.
 
 Definition Quaker := Var 0.
-Definition Republican := Var 1.  
+Definition Republican := Var 1.
 Definition Pacifist := Var 2.
 
-Definition NixonKB : Ensemble Formula := 
-  fun f => f = (Quaker → Pacifist) \/ 
+Definition NixonKB : Ensemble Formula :=
+  fun f => f = (Quaker → Pacifist) \/
            f = (Republican → ¬Pacifist) \/
            f = Quaker \/
            f = Republican.
@@ -162,7 +196,7 @@ Example quakers_are_pacifists :
   NixonKB ~ Quaker |~ Pacifist.
 Proof.
   apply RW with Quaker.
-  - apply quaker_pacifist_in_kb.
+  - apply L0. apply quaker_pacifist_in_kb.
   - apply Ref.
 Qed.
 
@@ -170,7 +204,7 @@ Example republicans_not_pacifists :
   NixonKB ~ Republican |~ ¬Pacifist.
 Proof.
   apply RW with Republican.
-  - apply republican_not_pacifist_in_kb.
+  - apply L0. apply republican_not_pacifist_in_kb.
   - apply Ref.
 Qed.
 
@@ -188,7 +222,7 @@ Proof.
 Qed.
 
 (* Conditional Assertions KB *)
-Definition BirdKB : KnowledgeBase := 
+Definition BirdKB : KnowledgeBase :=
   fun ca => ca = CA (Var 0) (Var 1) \/     (* Birds typically fly *)
             ca = CA (Var 2) (¬(Var 1)).    (* Penguins typically don't fly *)
 
@@ -206,7 +240,7 @@ Example direct_kb_usage_birds :
   BirdKB |≈ (Var 0) |~ (Var 1).    (* Birds |~ fly *)
 Proof.
   apply Base.
-  apply bird_flies_in_kb. 
+  apply bird_flies_in_kb.
 Qed.
 
 Example direct_kb_usage_penguins :
@@ -223,7 +257,7 @@ Example kb_with_classical_reasoning_alt :
   CumulCons BirdKB BirdContext (Var 2) (Var 0).
 Proof.
   apply RW with (Var 2).
-  - unfold BirdContext. reflexivity.
+  - apply L0. unfold In, BirdContext. reflexivity.
   - apply Ref.
 Qed.
 
@@ -231,7 +265,7 @@ Example empty_kb_reasoning_test :
   BirdContext ~ (Var 2) |~ (Var 0).
 Proof.
   apply RW with (Var 2).
-  - unfold BirdContext. reflexivity.
+  - apply L0. unfold In, BirdContext. reflexivity.
   - apply Ref.
 Qed.
 
@@ -250,4 +284,71 @@ Proof.
   split.
   - apply soundness_klm.
   - apply completeness_klm.
+Qed.
+
+Example double_negation :
+  forall Γ p, Γ ~ p |~ ¬¬p.
+Proof.
+  intros Γ p. apply Supra_taut. taut.
+Qed.
+
+Definition OrKB : KnowledgeBase :=
+  fun ca => ca = CA (Var 0) (Var 2) \/ ca = CA (Var 1) (Var 2).
+
+Inductive OrState : Type := s0 | s1 | s2.
+
+Definition or_label (s : OrState) : Ensemble World :=
+  match s with
+  | s0 => fun v => v = atoms (0 :: nil) \/ v = atoms (1 :: nil)
+  | s1 => fun v => v = atoms (0 :: 2 :: nil)
+  | s2 => fun v => v = atoms (1 :: 2 :: nil)
+  end.
+
+Lemma or_label_valuations : forall s v, In World (or_label s) v -> value v.
+Proof.
+  intros [] v H; unfold In, or_label in H;
+    repeat destruct H as [H | H]; subst; apply eval_value.
+Qed.
+
+Lemma or_smooth : Smooth or_label (fun _ _ => False).
+Proof.
+  intros f s H. left. split; [exact H | intros [t [_ []]]].
+Qed.
+
+Lemma or_label_nonempty : forall s, exists v, In World (or_label s) v.
+Proof.
+  intros []; unfold In, or_label; eexists; eauto.
+Qed.
+
+Definition or_model : CumulModel :=
+  Build_CumulModel OrState or_label (fun _ _ => False) or_label_valuations
+                   or_label_nonempty or_smooth.
+
+Lemma or_model_satisfies : SatisfiesKnowledgeBases or_model OrKB (Empty_set Formula).
+Proof.
+  split.
+  - intros p q [H | H]; injection H as -> ->;
+      intros [] [H_ent _] v H_v; simpl in H_v, H_ent; unfold In in H_v;
+      first
+        [ subst; reflexivity
+        | exfalso; first
+            [ specialize (H_ent (atoms (0 :: nil)) (or_introl eq_refl)); vm_compute in H_ent; discriminate
+            | specialize (H_ent (atoms (1 :: nil)) (or_intror eq_refl)); vm_compute in H_ent; discriminate
+            | specialize (H_ent (atoms (0 :: 2 :: nil)) eq_refl); vm_compute in H_ent; discriminate
+            | specialize (H_ent (atoms (1 :: 2 :: nil)) eq_refl); vm_compute in H_ent; discriminate ] ].
+  - intros s v _ g H_g. destruct H_g.
+Qed.
+
+Example or_not_derivable :
+  ~ (OrKB ⊕ (Empty_set Formula) ⊢ ((Var 0) ∨ (Var 1)) |~ (Var 2)).
+Proof.
+  intro H.
+  apply soundness_klm in H.
+  specialize (H or_model or_model_satisfies s0).
+  assert (H_min : In OrState (MinimalElements or_model ((Var 0) ∨ (Var 1))) s0).
+  { split.
+    - intros v [-> | ->]; reflexivity.
+    - intros [t [_ []]]. }
+  specialize (H H_min (atoms (0 :: nil)) (or_introl eq_refl)).
+  discriminate.
 Qed.

@@ -5,7 +5,6 @@ Require Import base_pc.
 Require Import semantic.
 Require Import syntax.
 Require Import complete.
-Require Import bijection_nat_Formula.
 Require Import KLM_Base.
 Require Import KLM_Cumulative.
 Require Import KLM_Semantics.
@@ -13,193 +12,169 @@ Require Import KLM_Soundness.
 
 Module KLM_Completeness_M.
 
-Definition CanonicalStates := Ensemble Formula.
 
-Definition CanonicalPreferenceRel (w1 w2 : CanonicalStates) : Prop :=
-  exists p, w1 ├ p /\ ~ (w2 ├ p).
+Section Canonical.
 
-Definition CanonicalModel : CumulModel := 
-{|
-  States := CanonicalStates;
-  Labeling := fun w p => valuemaxf w p;
-  PreferenceRel := CanonicalPreferenceRel
-|}.
+Variable 𝐊 : KnowledgeBase.
+Variable Γ : Ensemble Formula.
 
-Axiom exists_maximal_consistent : 
-  forall (𝐊 : KnowledgeBase) (Γ : Ensemble Formula) (p q : Formula),
-    ~ (CumulCons 𝐊 Γ p q) ->
-    exists w, maximal_consistent_set w /\ Γ ⊆ w /\ p ∈ w /\ ~ q ∈ w.
+Notation "p |~c q" := (CumulCons 𝐊 Γ p q) (at level 80).
 
-Axiom canonical_satisfies_kbs :
-  forall (𝐊 : KnowledgeBase) (Γ : Ensemble Formula) (w : CanonicalStates),
-    maximal_consistent_set w -> Γ ⊆ w ->
-    SatisfiesKnowledgeBases CanonicalModel 𝐊 Γ.
-
-Lemma max_consistent_deduction :
-  forall (w : Ensemble Formula) (p : Formula),
-    maximal_consistent_set w -> (p ∈ w <-> w ├ p).
-Proof.
-  intros w p H_max.
-  destruct H_max as [H_consistent H_maximal].
-  split.
-  - intro H_p_in_w.
-    apply L0.
-    exact H_p_in_w.
-  - intro H_w_deduce_p.
-    destruct (classic (p ∈ w)) as [H_p_in_w | H_p_not_in_w].
-    + exact H_p_in_w.
-    + assert (H_w_union_p_consistent : consistence (w ∪ [p])).
-      { unfold consistence.
-        intros q [H_deduce_q H_deduce_not_q].
-        
-        assert (H_p_to_q : w ├ p → q).
-        apply Deductive_Theorem.
-        exact H_deduce_q.
-        
-        assert (H_p_to_not_q : w ├ p → ¬q).
-        apply Deductive_Theorem.
-        exact H_deduce_not_q.
-        
-        assert (H_w_deduce_q : w ├ q).
-        apply MP with p; auto.
-        
-        assert (H_w_deduce_not_q : w ├ ¬q).
-        apply MP with p; auto.
-        
-        assert (H_contra : w ├ q /\ w ├ ¬q).
-        split; auto.
-        
-        apply H_consistent in H_contra.
-        contradiction.
-      }
-      apply H_maximal in H_w_union_p_consistent.
-      contradiction.
-Qed.
-
-Lemma max_consistent_complete :
-  forall (w : Ensemble Formula) (p : Formula),
-    maximal_consistent_set w -> p ∈ w \/ ¬p ∈ w.
-Proof.
-  intros w p H_max.
-  destruct H_max as [H_consistent H_maximal].
-  destruct (classic (p ∈ w)) as [H_p_in_w | H_p_not_in_w].
-  - left; exact H_p_in_w.
-  - assert (H_w_not_p_consistent : consistence (w ∪ [¬p])).
-    { 
-      unfold consistence.
-      intros q [H_deduce_q H_deduce_not_q].
-      
-      assert (H_not_p_to_q : w ├ ¬p → q).
-      apply Deductive_Theorem.
-      exact H_deduce_q.
-     
-      assert (H_not_p_to_not_q : w ├ ¬p → ¬q).
-      apply Deductive_Theorem.
-      exact H_deduce_not_q.
-      
-      assert (H_w_deduce_p : w ├ p).
-      apply rule_Indirect with q; auto.
-      
-      assert (H_p_in_w' : p ∈ w).
-      apply max_consistent_deduction; auto.
-      split; auto.
-      
-      contradiction.
-    }
-    right.
-    apply H_maximal in H_w_not_p_consistent.
-    exact H_w_not_p_consistent.
-Qed.
-
-Axiom entails_valuemaxf_equivalence : forall (Γ : Ensemble Formula) (p : Formula),
-  maximal_consistent_set Γ -> 
-  (entails (valuemaxf Γ) p <-> valuemaxf Γ p = true).
-  
-Axiom valuemaxf_membership : forall (Γ : Ensemble Formula) (p : Formula),
-  maximal_consistent_set Γ -> 
-  (valuemaxf Γ p = true <-> p ∈ Γ).
+Definition CanonicalLabel (α : Formula) : Ensemble World :=
+  fun v => value v /\
+           (forall g, In Formula Γ g -> v g = true) /\
+           (forall β, α |~c β -> v β = true).
 
 Lemma canonical_entails :
-  forall (w : CanonicalStates) (p : Formula),
-    maximal_consistent_set w ->
-    entails (Labeling CanonicalModel w) p <-> p ∈ w.
+  forall α β, entails (CanonicalLabel α) β <-> (α |~c β).
 Proof.
-  intros p w H_max.
-  split.
-  - intro H_entails.
-    unfold Labeling, CanonicalModel in H_entails.
-    simpl in H_entails.
-    apply entails_valuemaxf_equivalence in H_entails; auto.
-    apply valuemaxf_membership; auto.
-  - intro H_mem.
-    unfold Labeling, CanonicalModel.
-    simpl.
-    apply valuemaxf_membership in H_mem; auto.
-    apply entails_valuemaxf_equivalence; auto.
+  intros α β. split.
+  - intro H.
+    apply consequences_closed.
+    apply complete.
+    intros v H_val H_sat.
+    apply H.
+    split; [exact H_val | split].
+    + intros g H_g. apply H_sat. apply UnionI. left. exact H_g.
+    + intros γ H_γ. apply H_sat. apply UnionI. right. exact H_γ.
+  - intros H v [_ [_ H_cons]].
+    apply H_cons, H.
 Qed.
 
-Axiom canonical_states_maximal :
-  forall w : CanonicalStates, maximal_consistent_set w.
+Definition Bot : Formula := ¬((Var 0) → (Var 0)).
 
-Axiom canonical_minimality :
-  forall (p : Formula) (w : CanonicalStates),
-    p ∈ w ->
-    ~ exists state', p ∈ state' /\ CanonicalPreferenceRel state' w.
-    
-Lemma minimal_elements_canonical :
-  forall (p : Formula) (w : CanonicalStates),
-    maximal_consistent_set w ->
-    p ∈ w ->
-    In CanonicalStates (MinimalElements CanonicalModel p) w.
-Proof.
-  intros p w H_max H_p_in_w.
-  unfold MinimalElements.
-  split.
-  - apply canonical_entails; auto.
-  - intros [state' [H_entails_state' H_pref]].
-    assert (H_max_state' : maximal_consistent_set state').
-    apply canonical_states_maximal.
-    assert (H_p_in_state' : p ∈ state').
-    apply canonical_entails; auto.
-    assert (H_no_preferred : ~ exists state', p ∈ state' /\ CanonicalPreferenceRel state' w).
-    apply canonical_minimality; auto.
-    apply H_no_preferred.
-    exists state'.
-    split; auto.
-Qed.   
+Definition Consistent (α : Formula) : Prop := ~ (α |~c Bot).
 
-Lemma smoothness_canonical :
-  forall (p : Formula) (w : CanonicalStates),
-    entails (Labeling CanonicalModel w) p ->
-    exists min_w, 
-      entails (Labeling CanonicalModel min_w) p /\
-      (CanonicalPreferenceRel min_w w \/ min_w = w) /\
-      In CanonicalStates (MinimalElements CanonicalModel p) min_w.
+Lemma bot_entails_all : forall α β, (α |~c Bot) -> (α |~c β).
 Proof.
-  intros p w H_entails.
-  apply smoothness; auto.
+  intros α β H.
+  apply RW with Bot; [apply tautology_deduce; unfold Bot; taut | exact H].
 Qed.
+
+Lemma consistent_nonempty :
+  forall α, Consistent α -> exists v, In World (CanonicalLabel α) v.
+Proof.
+  intros α H. apply NNPP. intro H_no. apply H.
+  apply canonical_entails. intros v H_v.
+  exfalso. apply H_no. exists v. exact H_v.
+Qed.
+
+Lemma consistent_back :
+  forall γ α, Consistent γ -> (γ |~c α) -> Consistent α.
+Proof.
+  intros γ α H_γ H_ga H_a. apply H_γ.
+  apply Reciprocity with α; [apply bot_entails_all; exact H_a | exact H_ga | exact H_a].
+Qed.
+
+Definition CanonicalState : Type := sig Consistent.
+
+Definition CanonicalLabeling (s : CanonicalState) : Ensemble World :=
+  CanonicalLabel (proj1_sig s).
+
+Definition CanonicalPreferenceRel (t s : CanonicalState) : Prop :=
+  (proj1_sig s |~c proj1_sig t) /\ ~ (proj1_sig t |~c proj1_sig s).
+
+Lemma canonical_minimal :
+  forall α (s : CanonicalState),
+    Minimal CanonicalLabeling CanonicalPreferenceRel α s <->
+    ((proj1_sig s |~c α) /\ (α |~c proj1_sig s)).
+Proof.
+  intros α [γ H_γ].
+  unfold Minimal, CanonicalLabeling, CanonicalPreferenceRel; simpl.
+  split.
+  - intros [H_ent H_min].
+    apply canonical_entails in H_ent.
+    split; [exact H_ent |].
+    apply NNPP. intro H_not.
+    apply H_min. exists (exist _ α (consistent_back γ α H_γ H_ent)). simpl.
+    split; [apply canonical_entails, Ref | split; assumption].
+  - intros [H_ga H_ag].
+    split; [apply canonical_entails; exact H_ga |].
+    intros [[δ H_δc] [H_δ [H_gd H_not_dg]]]. simpl in *.
+    apply canonical_entails in H_δ.
+    apply H_not_dg.
+
+    assert (H_ad : α |~c δ) by (apply Reciprocity with γ; assumption).
+    apply Reciprocity with α; assumption.
+Qed.
+
+Lemma canonical_labels_valuations :
+  forall s v, In World (CanonicalLabeling s) v -> value v.
+Proof.
+  intros s v [H _]. exact H.
+Qed.
+
+Lemma canonical_labels_nonempty :
+  forall s, exists v, In World (CanonicalLabeling s) v.
+Proof.
+  intros [α H]. apply consistent_nonempty. exact H.
+Qed.
+
+Lemma canonical_smooth : Smooth CanonicalLabeling CanonicalPreferenceRel.
+Proof.
+  intros α [γ H_γ] H_ent.
+  unfold CanonicalLabeling in H_ent. simpl in H_ent.
+  apply canonical_entails in H_ent.
+  destruct (classic (α |~c γ)) as [H_ag | H_not].
+  - left. apply canonical_minimal. simpl. split; assumption.
+  - right. exists (exist _ α (consistent_back γ α H_γ H_ent)). split.
+    + apply canonical_minimal. simpl. split; apply Ref.
+    + unfold CanonicalPreferenceRel. simpl. split; assumption.
+Qed.
+
+Definition CanonicalModel : CumulModel :=
+{|
+  States := CanonicalState;
+  Labeling := CanonicalLabeling;
+  PreferenceRel := CanonicalPreferenceRel;
+  labels_are_valuations := canonical_labels_valuations;
+  labels_nonempty := canonical_labels_nonempty;
+  smooth := canonical_smooth
+|}.
+
+Lemma canonical_semantic_entails :
+  forall α β, (CanonicalModel : α |~w β) <-> (α |~c β).
+Proof.
+  intros α β. split.
+  - intro H.
+    destruct (classic (Consistent α)) as [H_c | H_i].
+    + apply canonical_entails.
+      refine (H (exist _ α H_c) _).
+      unfold In, MinimalElements. simpl.
+      apply canonical_minimal. simpl. split; apply Ref.
+    + apply bot_entails_all. apply NNPP. exact H_i.
+  - intros H s H_min.
+    unfold In, MinimalElements in H_min. simpl in H_min.
+    apply canonical_minimal in H_min.
+    destruct H_min as [H_ga H_ag].
+    simpl. unfold CanonicalLabeling.
+    apply canonical_entails.
+    apply Reciprocity with α; assumption.
+Qed.
+
+Lemma canonical_satisfies_kbs :
+  SatisfiesKnowledgeBases CanonicalModel 𝐊 Γ.
+Proof.
+  split.
+  - intros p q H_in.
+    apply canonical_semantic_entails.
+    apply Base. exact H_in.
+  - intros s v H_v g H_g.
+    simpl in H_v. unfold CanonicalLabeling, CanonicalLabel, In in H_v.
+    destruct H_v as [_ [H_Γ _]].
+    apply H_Γ. exact H_g.
+Qed.
+
+End Canonical.
 
 Theorem completeness_klm :
   forall (𝐊 : KnowledgeBase) (Γ : Ensemble Formula) (p q : Formula),
 	(𝐊⊕Γ ⊨ p |~w q) -> (𝐊⊕Γ ⊢ p |~ q).
 Proof.
   intros 𝐊 Γ p q H_sem.
-  destruct (classic (CumulCons 𝐊 Γ p q)) as [H_syn | H_not_syn].
-  - exact H_syn.
-  - assert (H_sem_check : CumulativeModelEntails 𝐊 Γ p q).
-    { exact H_sem. }
-    destruct (exists_maximal_consistent 𝐊 Γ p q H_not_syn) as 
-      [w [H_max [H_sub [H_p_in_w H_not_q_in_w]]]].
-    assert (H_satisfies : SatisfiesKnowledgeBases CanonicalModel 𝐊 Γ).
-    apply canonical_satisfies_kbs with (w := w); auto.
-    assert (H_minimal : In CanonicalStates (MinimalElements CanonicalModel p) w).
-    apply minimal_elements_canonical; auto.
-    assert (H_entails_q : entails (Labeling CanonicalModel w) q).
-    apply H_sem; auto.
-    assert (H_q_in_w : q ∈ w).
-    apply canonical_entails; auto.
-    contradiction.
+  apply (canonical_semantic_entails 𝐊 Γ).
+  apply H_sem.
+  apply canonical_satisfies_kbs.
 Qed.
 
 End KLM_Completeness_M.

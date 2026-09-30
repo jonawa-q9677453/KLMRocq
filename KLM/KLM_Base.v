@@ -5,99 +5,79 @@ Require Import semantic.
 Require Import syntax.
 Require Import complete.
 
-Definition State := Formula -> bool.
+Definition World := Formula -> bool.
 
-Fixpoint entails (state : State) (formula : Formula) : Prop :=
-  match formula with
-  | Var n => state formula = true
-  | Not p => ~(entails state p)
-  | Contain p1 p2 => entails state p1 -> entails state p2
-  end.
-  
+Definition entails (label : Ensemble World) (formula : Formula) : Prop :=
+  forall v, In World label v -> v formula = true.
+
+Lemma deduce_iff_semantic :
+  forall Γ p, Γ ├ p <-> Γ ╞ p.
+Proof.
+  split.
+  - apply soundness_L.
+  - apply complete.
+Qed.
+
+Lemma tautology_deduce :
+  forall Γ p, (forall v, value v -> v p = true) -> Γ ├ p.
+Proof.
+  intros Γ p H.
+  apply complete.
+  intros v Hv _.
+  apply H; exact Hv.
+Qed.
+
+Ltac bool_normalize Hn Hc :=
+  repeat (rewrite Hc in * || rewrite Hn in *).
+
+Ltac taut :=
+  let v := fresh "v" in
+  let Hn := fresh "Hn" in
+  let Hc := fresh "Hc" in
+  intros v [Hn Hc];
+  bool_normalize Hn Hc;
+  repeat match goal with
+         | |- context [v ?x] => destruct (v x)
+         end;
+  reflexivity.
+
+Lemma value_conjunction :
+  forall v p q, value v ->
+    (v (p ∧ q) = true <-> (v p = true /\ v q = true)).
+Proof.
+  intros v p q [Hn Hc].
+  bool_normalize Hn Hc.
+  destruct (v p), (v q); simpl; intuition discriminate.
+Qed.
+
+Lemma value_contain :
+  forall v p q, value v ->
+    (v (p → q) = true <-> (v p = true -> v q = true)).
+Proof.
+  intros v p q [Hn Hc].
+  bool_normalize Hn Hc.
+  destruct (v p), (v q); simpl; intuition discriminate.
+Qed.
+
+Lemma value_equivalence :
+  forall v p q, value v ->
+    (v (p ↔ q) = true <-> v p = v q).
+Proof.
+  intros v p q [Hn Hc].
+  bool_normalize Hn Hc.
+  destruct (v p), (v q); simpl; intuition discriminate.
+Qed.
+
 Lemma entails_conjunction :
-  forall s p q, entails s (p ∧ q) <-> (entails s p /\ entails s q).
+  forall (label : Ensemble World) p q,
+    (forall v, In World label v -> value v) ->
+    (entails label (p ∧ q) <-> (entails label p /\ entails label q)).
 Proof.
-  intros s p q.
-  simpl.
+  intros label p q H_val.
+  unfold entails.
   split.
-  - intro H. split.
-    destruct (Classical_Prop.classic (entails s p)) as [Hp | Hnp].
-    exact Hp.
-    exfalso. 
-     assert (Hpnq: entails s (Contain p (Not q))).
-     simpl. 
-     intro Hp'. 
-     contradiction.
-     
-     apply H. exact Hpnq.
-     destruct (Classical_Prop.classic (entails s q)) as [Hq | Hnq].
-     exact Hq.
-     exfalso. 
-       assert (Hpnq: entails s (Contain p (Not q))).
-       simpl. 
-       intro Hp. 
-       exact Hnq.
-    
-    apply H. exact Hpnq.
-    
-  - intros [Hp Hq]. 
-    simpl. 
-    intro Hpnq.
-    assert (Hnq: ~ entails s q).
-    apply Hpnq. 
-    exact Hp.
-    contradiction.
+  - intro H. split; intros v Hv;
+      apply (value_conjunction v p q (H_val v Hv)); auto.
+  - intros [Hp Hq] v Hv.
+    apply (value_conjunction v p q (H_val v Hv)); auto.
 Qed.
-
-Lemma entails_equivalence :
-  forall s p q, entails s (p ↔ q) <-> (entails s p <-> entails s q).
-Proof.
-  intros s p q. 
-  simpl. 
-  split.
-  - intro H. 
-    split.
-    intro Hp. 
-    destruct (classic (entails s q)) as [Hq | Hnq]. 
-      exact Hq. 
-      exfalso. 
-      assert (Hcontra: (entails s p -> entails s q) -> ~ (entails s q -> entails s p)).
-        intro Hpq. 
-        intro Hqp. 
-        apply Hpq in Hp. 
-        contradiction. 
-
-     apply H in Hcontra. 
-     contradiction. 
-    
-     intro Hq. 
-     destruct (classic (entails s p)) as [Hp | Hnp]. 
-       exact Hp. 
-        exfalso. 
-        assert (Hcontra: (entails s p -> entails s q) -> ~ (entails s q -> entails s p)).
-          intro Hpq. 
-          intro Hqp. 
-          apply Hqp in Hq. 
-          contradiction. 
-          
-      apply H in Hcontra. 
-      contradiction. 
-      
-  - intros [Hpq Hqp]. 
-    simpl. 
-    intro Hcontra. 
-    apply Hcontra in Hpq. 
-    contradiction. 
-Qed.
-
-Axiom entails_equivalence_backup :
-  forall s p q, entails s (p ↔ q) <-> (entails s p <-> entails s q).
-
-Ltac solve_formula :=
-  match goal with
-  | |- Formula => constructor; solve_formula
-  | |- entails _ (Var _) => simpl; reflexivity
-  | |- entails _ (Not _) => simpl; intro
-  | |- entails _ (Contain _ _) => simpl; intro
-  | _ => auto
-  end.
